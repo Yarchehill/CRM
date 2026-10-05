@@ -1,0 +1,520 @@
+<!doctype html>
+<html lang="ru">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no">
+<meta name="robots" content="noindex">
+<title>CRM доступа</title>
+<script src="https://telegram.org/js/telegram-web-app.js"></script>
+<style>
+:root {
+  --bg: var(--tg-theme-secondary-bg-color, #f1f2f5);
+  --card: var(--tg-theme-bg-color, #ffffff);
+  --text: var(--tg-theme-text-color, #16181c);
+  --hint: var(--tg-theme-hint-color, #7a8089);
+  --accent: var(--tg-theme-button-color, #2f6fde);
+  --accent-text: var(--tg-theme-button-text-color, #ffffff);
+  --line: rgba(128, 128, 128, .22);
+  --red: #d2392f;
+  --orange: #c97a00;
+  --green: #2e9e4f;
+}
+@media (prefers-color-scheme: dark) {
+  :root { --bg: var(--tg-theme-secondary-bg-color, #16181c); --card: var(--tg-theme-bg-color, #22252b);
+          --text: var(--tg-theme-text-color, #f1f2f5); }
+}
+* { box-sizing: border-box; -webkit-tap-highlight-color: transparent; }
+body { margin: 0; background: var(--bg); color: var(--text); font: 15px/1.4 -apple-system, "Segoe UI", Roboto, sans-serif; }
+#app { max-width: 640px; margin: 0 auto; padding: 14px 14px 90px; }
+h1 { font-size: 22px; margin: 4px 0 2px; }
+h2 { font-size: 18px; margin: 0 0 12px; }
+.hint { color: var(--hint); font-size: 13px; }
+.stats { display: flex; gap: 8px; margin: 12px 0; }
+.stat { flex: 1; background: var(--card); border-radius: 12px; padding: 10px 6px; text-align: center; }
+.stat b { display: block; font-size: 20px; }
+.stat span { font-size: 12px; color: var(--hint); }
+.card { background: var(--card); border-radius: 12px; padding: 12px 14px; margin-bottom: 8px; cursor: pointer; }
+.card .top { display: flex; justify-content: space-between; gap: 8px; align-items: baseline; }
+.card .name { font-weight: 600; overflow-wrap: anywhere; }
+.card .sub { color: var(--hint); font-size: 13px; margin-top: 2px; overflow-wrap: anywhere; }
+.badge { font-size: 12px; font-weight: 600; white-space: nowrap; color: var(--green); }
+.badge.soon { color: var(--orange); }
+.badge.expired { color: var(--red); }
+button { font: inherit; border: 0; border-radius: 10px; padding: 12px 14px; cursor: pointer; background: var(--line); color: var(--text); }
+button.main { background: var(--accent); color: var(--accent-text); font-weight: 600; width: 100%; }
+button.wide { width: 100%; margin-top: 8px; }
+button.danger { color: var(--red); }
+input, select, textarea { font: inherit; width: 100%; padding: 11px 12px; border-radius: 10px; border: 1px solid var(--line);
+  background: var(--card); color: var(--text); outline: none; }
+input:focus, select:focus, textarea:focus { border-color: var(--accent); }
+textarea { resize: none; font-family: Consolas, Menlo, monospace; font-size: 13px; }
+label { display: block; font-size: 13px; color: var(--hint); margin: 12px 0 4px; }
+.row { display: flex; gap: 8px; }
+.row > * { flex: 1; }
+.chips { display: flex; flex-wrap: wrap; gap: 6px; }
+.chip { padding: 8px 12px; border-radius: 18px; background: var(--card); border: 1px solid var(--line); font-size: 14px; flex: none; }
+.chip.on { background: var(--accent); color: var(--accent-text); border-color: var(--accent); }
+.tabs { position: fixed; left: 0; right: 0; bottom: 0; display: flex; background: var(--card); border-top: 1px solid var(--line);
+  padding-bottom: env(safe-area-inset-bottom); }
+.tabs button { flex: 1; background: none; border-radius: 0; padding: 14px 4px; color: var(--hint); font-size: 13px; }
+.tabs button.on { color: var(--accent); font-weight: 600; }
+.sheet { position: fixed; inset: 0; background: var(--bg); overflow-y: auto; padding: 16px 14px 30px; z-index: 5; }
+.sheet .inner { max-width: 640px; margin: 0 auto; }
+.error { color: var(--red); font-size: 13px; margin-top: 10px; min-height: 18px; }
+.keybox { background: var(--card); border-radius: 12px; padding: 12px; font: 13px/1.5 Consolas, Menlo, monospace; overflow-wrap: anywhere; user-select: all; }
+.empty { text-align: center; color: var(--hint); padding: 40px 10px; }
+.toolbar { display: flex; gap: 8px; margin-bottom: 10px; }
+.toolbar select { width: auto; flex: none; }
+#toast { position: fixed; left: 50%; bottom: 80px; transform: translateX(-50%); background: rgba(0, 0, 0, .8); color: #fff;
+  padding: 9px 16px; border-radius: 18px; font-size: 14px; opacity: 0; transition: opacity .2s; pointer-events: none; z-index: 9; }
+#toast.on { opacity: 1; }
+</style>
+</head>
+<body>
+<div id="app"></div>
+<div id="sheet"></div>
+<div id="toast"></div>
+<script>
+"use strict";
+// Открытый ключ, зашитый в программы: секретный ключ должен ему соответствовать.
+const EXPECTED_PUBLIC = "f882125868c37a1c84834844a1871be7e44cf4558d90f2e2d1a63bab1a68509c";
+const SOON_DAYS = 7;
+const TERMS = [["7 дней", 7], ["30 дней", 30], ["90 дней", 90], ["1 год", 365], ["Бессрочно", 0], ["До даты", -1]];
+const DEFAULT_DB = { seq: 1, clients: [], licenses: [],
+  programs: [{ code: "ozvuchka", name: "Озвучка текста" }, { code: "montage", name: "Монтаж видео" }] };
+
+const tg = window.Telegram && window.Telegram.WebApp;
+const inTelegram = !!(tg && tg.initData);
+
+// ---------------------------------------------------------------- подпись Ed25519
+
+const P = 2n ** 255n - 19n;
+const L = 2n ** 252n + 27742317777372353535851937790883648493n;
+const mod = (a, m = P) => ((a % m) + m) % m;
+function power(b, e, m) {
+  let r = 1n;
+  b = mod(b, m);
+  for (; e > 0n; e >>= 1n) { if (e & 1n) r = r * b % m; b = b * b % m; }
+  return r;
+}
+const D = mod(-121665n * power(121666n, P - 2n, P));
+function add(a, b) {
+  const A = mod((a[1] - a[0]) * (b[1] - b[0])), B = mod((a[1] + a[0]) * (b[1] + b[0]));
+  const C = mod(2n * a[3] * b[3] * D), Z = mod(2n * a[2] * b[2]);
+  const E = B - A, F = Z - C, G = Z + C, H = B + A;
+  return [mod(E * F), mod(G * H), mod(F * G), mod(E * H)];
+}
+function mul(s, p) {
+  let q = [0n, 1n, 1n, 0n];
+  for (; s > 0n; s >>= 1n) { if (s & 1n) q = add(q, p); p = add(p, p); }
+  return q;
+}
+const GY = mod(4n * power(5n, P - 2n, P));
+const GX = (() => {
+  const x2 = mod((GY * GY - 1n) * power(D * GY * GY + 1n, P - 2n, P));
+  let x = power(x2, (P + 3n) / 8n, P);
+  if (mod(x * x - x2) !== 0n) x = mod(x * power(2n, (P - 1n) / 4n, P));
+  return x & 1n ? P - x : x;
+})();
+const G = [GX, GY, 1n, mod(GX * GY)];
+
+function fromLE(bytes) { let n = 0n; for (let i = bytes.length - 1; i >= 0; i--) n = (n << 8n) | BigInt(bytes[i]); return n; }
+function toLE(n) { const out = new Uint8Array(32); for (let i = 0; i < 32; i++) { out[i] = Number(n & 255n); n >>= 8n; } return out; }
+function compress(p) {
+  const zinv = power(p[2], P - 2n, P), x = mod(p[0] * zinv), y = mod(p[1] * zinv);
+  return toLE(y | ((x & 1n) << 255n));
+}
+function concat(...parts) {
+  const out = new Uint8Array(parts.reduce((n, p) => n + p.length, 0));
+  let at = 0;
+  for (const p of parts) { out.set(p, at); at += p.length; }
+  return out;
+}
+async function sha512(bytes) { return new Uint8Array(await crypto.subtle.digest("SHA-512", bytes)); }
+async function expand(secret) {
+  const h = await sha512(secret);
+  return [(fromLE(h.slice(0, 32)) & ((1n << 254n) - 8n)) | (1n << 254n), h.slice(32)];
+}
+async function publicKey(secret) { return compress(mul((await expand(secret))[0], G)); }
+async function sign(secret, message) {
+  const [a, prefix] = await expand(secret);
+  const A = compress(mul(a, G));
+  const r = fromLE(await sha512(concat(prefix, message))) % L;
+  const R = compress(mul(r, G));
+  const h = fromLE(await sha512(concat(R, A, message))) % L;
+  return concat(R, toLE((r + h * a) % L));
+}
+
+const hex = bytes => Array.from(bytes, b => b.toString(16).padStart(2, "0")).join("");
+const unhex = text => new Uint8Array(text.match(/../g).map(h => parseInt(h, 16)));
+function base32(bytes) {
+  const abc = "ABCDEFGHIJKLMNOPQRSTUVWXYZ234567";
+  let bits = 0, value = 0, out = "";
+  for (const b of bytes) {
+    value = (value << 8) | b; bits += 8;
+    while (bits >= 5) { out += abc[(value >>> (bits - 5)) & 31]; bits -= 5; }
+  }
+  return bits ? out + abc[(value << (5 - bits)) & 31] : out;
+}
+// expires: "ГГГГ-ММ-ДД" или "" (бессрочно). Формат ключа тот же, что в настольной CRM.
+async function makeKey(secret, program, device, expires) {
+  const payload = new TextEncoder().encode(["1", program, device, expires ? expires.replace(/-/g, "") : "0"].join("|"));
+  const text = base32(concat(payload, await sign(secret, payload)));
+  return text.match(/.{1,6}/g).join("-");
+}
+
+// ---------------------------------------------------------------- хранилище (облако Telegram или браузер)
+
+const CHUNK = 2000;
+const store = {
+  get(keys) {
+    if (!inTelegram) return Promise.resolve(Object.fromEntries(keys.map(k => [k, localStorage.getItem("crm_" + k) || ""])));
+    return new Promise((ok, fail) => tg.CloudStorage.getItems(keys, (e, values) => e ? fail(new Error(e)) : ok(values)));
+  },
+  set(key, value) {
+    if (!inTelegram) { localStorage.setItem("crm_" + key, value); return Promise.resolve(); }
+    return new Promise((ok, fail) => tg.CloudStorage.setItem(key, value, e => e ? fail(new Error(e)) : ok()));
+  },
+};
+async function loadAll() {
+  const head = await store.get(["secret", "db_n"]);
+  const n = parseInt(head.db_n) || 0;
+  let json = "";
+  if (n) {
+    const parts = await store.get(Array.from({ length: n }, (_, i) => "db_" + i));
+    for (let i = 0; i < n; i++) json += parts["db_" + i];
+  }
+  return { secret: head.secret || "", db: json ? JSON.parse(json) : structuredClone(DEFAULT_DB) };
+}
+let saving = Promise.resolve();
+function saveDb() {
+  const json = JSON.stringify(db);
+  saving = saving.then(async () => {
+    const n = Math.ceil(json.length / CHUNK);
+    for (let i = 0; i < n; i++) await store.set("db_" + i, json.slice(i * CHUNK, (i + 1) * CHUNK));
+    await store.set("db_n", String(n));
+  }).catch(e => toast("Не удалось сохранить: " + e.message));
+  return saving;
+}
+
+// ---------------------------------------------------------------- данные
+
+let db = null, secret = null;
+const state = { tab: "licenses", search: "", filter: "all" };
+
+const pad = n => String(n).padStart(2, "0");
+const iso = d => d.getFullYear() + "-" + pad(d.getMonth() + 1) + "-" + pad(d.getDate());
+const today = () => iso(new Date());
+const showDate = s => s ? s.split("-").reverse().join(".") : "бессрочно";
+function addDays(start, days) { const d = new Date(start + "T12:00:00"); d.setDate(d.getDate() + days); return iso(d); }
+function daysLeft(expires) { return Math.round((new Date(expires + "T12:00:00") - new Date(today() + "T12:00:00")) / 864e5); }
+function statusOf(expires) {
+  if (!expires) return ["Активен", ""];
+  const left = daysLeft(expires);
+  if (left < 0) return ["Истёк", "expired"];
+  return left <= SOON_DAYS ? ["Истекает: " + left + " дн.", "soon"] : ["Активен", ""];
+}
+const normDevice = text => { const c = text.toUpperCase().replace(/[^A-Z2-7]/g, ""); return c.length === 10 ? c : ""; };
+const showDevice = c => c.slice(0, 5) + "-" + c.slice(5);
+const client = id => db.clients.find(c => c.id === id) || { name: "?" };
+const program = code => db.programs.find(p => p.code === code) || { name: code };
+const esc = s => String(s == null ? "" : s).replace(/[&<>"']/g, c => "&#" + c.charCodeAt(0) + ";");
+
+// ---------------------------------------------------------------- мелочи интерфейса
+
+const $ = id => document.getElementById(id);
+function toast(text) {
+  const t = $("toast");
+  t.textContent = text;
+  t.classList.add("on");
+  clearTimeout(toast.timer);
+  toast.timer = setTimeout(() => t.classList.remove("on"), 2200);
+}
+async function copy(text, done) {
+  try { await navigator.clipboard.writeText(text); }
+  catch (e) {
+    const box = document.createElement("textarea");
+    box.value = text;
+    document.body.appendChild(box);
+    box.select();
+    document.execCommand("copy");
+    box.remove();
+  }
+  toast(done || "Скопировано");
+}
+function ask(text) {
+  if (inTelegram && tg.isVersionAtLeast("6.2")) return new Promise(ok => tg.showConfirm(text, ok));
+  return Promise.resolve(confirm(text));
+}
+function openSheet(html) { $("sheet").innerHTML = '<div class="sheet"><div class="inner">' + html + "</div></div>"; }
+function closeSheet() { $("sheet").innerHTML = ""; render(); }
+function fail(text) { $("error").textContent = text; }
+
+// ---------------------------------------------------------------- главный экран
+
+function render() {
+  if (!secret) return renderSetup();
+  const counts = { active: 0, soon: 0, expired: 0 };
+  for (const l of db.licenses) {
+    const tag = statusOf(l.expires)[1];
+    if (tag === "expired") counts.expired++; else counts.active++;
+    if (tag === "soon") counts.soon++;
+  }
+  let body = "";
+  if (state.tab === "licenses") {
+    body =`<button class="main" onclick="licenseForm()">Выдать доступ</button>
+      <div class="toolbar" style="margin-top:10px">
+        <input id="search" placeholder="Поиск" value="${esc(state.search)}" oninput="state.search=this.value;renderList()">
+        <select onchange="state.filter=this.value;render()">${[["all", "Все"], ["active", "Активные"], ["soon", "Истекают"],
+          ["expired", "Истекли"]].map(([v, t]) => `<option value="${v}" ${state.filter === v ? "selected" : ""}>${t}</option>`).join("")}</select>
+      </div><div id="list">${listHtml()}</div>`;
+  } else if (state.tab === "clients") {
+    body = `<button class="main" onclick="clientForm()">Добавить клиента</button><div style="height:10px"></div>` +
+      (db.clients.slice().sort((a, b) => a.name.localeCompare(b.name)).map(c => `<div class="card" onclick="clientForm(${c.id})">
+        <div class="top"><span class="name">${esc(c.name)}</span>
+        <span class="hint">доступов: ${db.licenses.filter(l => l.client === c.id).length}</span></div>
+        ${c.contact ? `<div class="sub">${esc(c.contact)}</div>` : ""}${c.note ? `<div class="sub">${esc(c.note)}</div>` : ""}</div>`).join("")
+        || '<div class="empty">Клиентов пока нет.</div>');
+  } else if (state.tab === "programs") {
+    body = `<button class="main" onclick="programForm()">Добавить программу</button><div style="height:10px"></div>` +
+      db.programs.map(p => `<div class="card" onclick="programForm('${p.code}')">
+        <div class="top"><span class="name">${esc(p.name)}</span>
+        <span class="hint">доступов: ${db.licenses.filter(l => l.program === p.code).length}</span></div>
+        <div class="sub">код: ${esc(p.code)}</div></div>`).join("") +
+      `<p class="hint">Новую программу нужно ещё собрать с модулем доступа и тем же кодом — без этого она ключи не проверяет.</p>`;
+  } else {
+    body = `<div class="card" style="cursor:default"><div class="name">Резервная копия</div>
+        <div class="sub">Список клиентов и доступов в виде текста. Сохраните его в надёжном месте.</div>
+        <button class="wide" onclick="copy(JSON.stringify(db), 'Копия скопирована')">Скопировать копию</button>
+        <button class="wide" onclick="restoreForm()">Восстановить из копии</button></div>
+      <div class="card" style="cursor:default"><div class="name">Секретный ключ</div>
+        <div class="sub">Хранится в облаке Telegram под вашим аккаунтом. Без него это приложение ключи не выдаёт.</div>
+        <button class="wide danger" onclick="forgetSecret()">Убрать ключ с этого аккаунта</button></div>
+      <p class="hint">${inTelegram ? "Данные хранятся в облаке Telegram." : "Открыто вне Telegram: данные хранятся только в этом браузере."}</p>`;
+  }
+  const tabs = [["licenses", "Доступы"], ["clients", "Клиенты"], ["programs", "Программы"], ["more", "Ещё"]];
+  $("app").innerHTML = `<h1>CRM доступа</h1>
+    <div class="stats"><div class="stat"><b>${counts.active}</b><span>активных</span></div>
+      <div class="stat"><b>${counts.soon}</b><span>истекают</span></div>
+      <div class="stat"><b>${counts.expired}</b><span>истекли</span></div></div>${body}
+    <div class="tabs">${tabs.map(([k, t]) => `<button class="${state.tab === k ? "on" : ""}" onclick="state.tab='${k}';render()">${t}</button>`).join("")}</div>`;
+}
+function listHtml() {
+  const needle = state.search.toLowerCase();
+  return db.licenses
+    .map(l => ({ l, c: client(l.client), p: program(l.program), st: statusOf(l.expires) }))
+    .filter(r => state.filter === "all" || (state.filter === "active" ? r.st[1] !== "expired" : r.st[1] === state.filter))
+    .filter(r => !needle || [r.c.name, r.p.name, showDevice(r.l.device), r.l.note].join(" ").toLowerCase().includes(needle))
+    .sort((a, b) => (a.l.expires || "9999").localeCompare(b.l.expires || "9999"))
+    .map(r => `<div class="card" onclick="licenseCard(${r.l.id})">
+      <div class="top"><span class="name">${esc(r.c.name)}</span><span class="badge ${r.st[1]}">${r.st[0]}</span></div>
+      <div class="sub">${esc(r.p.name)} · до ${showDate(r.l.expires)} · ${showDevice(r.l.device)}</div>
+      ${r.l.note ? `<div class="sub">${esc(r.l.note)}</div>` : ""}</div>`).join("")
+    || '<div class="empty">Доступов нет. Нажмите «Выдать доступ».</div>';
+}
+// при поиске перерисовываем только список, чтобы не терять фокус в поле
+function renderList() { $("list").innerHTML = listHtml(); }
+
+// ---------------------------------------------------------------- первый запуск
+
+function renderSetup() {
+  $("app").innerHTML = `<h1>CRM доступа</h1>
+    <p class="hint">Первый запуск. Вставьте секретный ключ подписи — он лежит на компьютере в файле
+    <b>CRM доступа → данные → secret.key</b> (откройте Блокнотом и скопируйте всю строку).</p>
+    <label>Секретный ключ (64 знака)</label><textarea id="secret" rows="3" autocomplete="off"></textarea>
+    <div class="error" id="error"></div><button class="main" onclick="saveSecret()">Подключить</button>
+    <p class="hint">Ключ сохранится только в вашем аккаунте Telegram. Никому его не показывайте: с ним можно выдавать доступ к вашим программам.</p>`;
+}
+async function saveSecret() {
+  const text = $("secret").value.replace(/\s/g, "").toLowerCase();
+  if (!/^[0-9a-f]{64}$/.test(text)) return fail("Это не секретный ключ: нужно 64 знака из цифр и букв a–f.");
+  if (hex(await publicKey(unhex(text))) !== EXPECTED_PUBLIC) return fail("Ключ не подходит к вашим программам. Скопируйте его из файла secret.key.");
+  try { await store.set("secret", text); } catch (e) { return fail("Не удалось сохранить: " + e.message); }
+  secret = unhex(text);
+  render();
+}
+async function forgetSecret() {
+  if (!await ask("Убрать секретный ключ? Чтобы снова выдавать доступ, его придётся вставить заново.")) return;
+  await store.set("secret", "");
+  secret = null;
+  render();
+}
+function restoreForm() {
+  openSheet(`<h2>Восстановить из копии</h2><p class="hint">Вставьте текст резервной копии. Текущий список будет заменён.</p>
+    <textarea id="backup" rows="8"></textarea><div class="error" id="error"></div>
+    <div class="row"><button onclick="closeSheet()">Отмена</button><button class="main" onclick="restore()">Восстановить</button></div>`);
+}
+async function restore() {
+  let data;
+  try { data = JSON.parse($("backup").value); } catch (e) { data = null; }
+  if (!data || !Array.isArray(data.clients) || !Array.isArray(data.licenses) || !Array.isArray(data.programs))
+    return fail("Это не резервная копия CRM.");
+  if (!await ask("Заменить текущий список клиентов и доступов?")) return;
+  db = data;
+  await saveDb();
+  closeSheet();
+}
+
+// ---------------------------------------------------------------- доступы
+
+let form = {};
+function licenseForm(renewId) {
+  const old = db.licenses.find(l => l.id === renewId);
+  form = { renewId: old ? old.id : 0, term: 30 };
+  openSheet(`<h2>${old ? "Продлить доступ" : "Выдать доступ"}</h2>
+    <label>Клиент</label><input id="f_client" list="clients" value="${old ? esc(client(old.client).name) : ""}" ${old ? "disabled" : ""}
+      placeholder="Имя: выберите или впишите новое" onchange="fillDevice()">
+    <datalist id="clients">${db.clients.map(c => `<option value="${esc(c.name)}">`).join("")}</datalist>
+    <label>Программа</label><select id="f_program" ${old ? "disabled" : ""}>${db.programs.map(p =>
+      `<option value="${p.code}" ${old && old.program === p.code ? "selected" : ""}>${esc(p.name)}</option>`).join("")}</select>
+    <label>Код компьютера (клиент видит его при запуске программы)</label>
+    <input id="f_device" value="${old ? showDevice(old.device) : ""}" ${old ? "disabled" : ""} placeholder="ABCDE-FGH23"
+      autocapitalize="characters" autocomplete="off">
+    <label>Срок</label><div class="chips" id="terms"></div>
+    <div id="until_box" style="display:none"><label>Действует до</label><input id="f_until" type="date" min="${today()}"></div>
+    <label>Заметка</label><input id="f_note" value="${old ? esc(old.note) : ""}">
+    <div class="error" id="error"></div>
+    <div class="row"><button onclick="closeSheet()">Отмена</button><button class="main" onclick="issue()">Выдать ключ</button></div>`);
+  setTerm(30);
+}
+function setTerm(days) {
+  form.term = days;
+  $("terms").innerHTML = TERMS.map(([t, d]) => `<button class="chip ${d === days ? "on" : ""}" onclick="setTerm(${d})">${t}</button>`).join("");
+  $("until_box").style.display = days === -1 ? "" : "none";
+}
+function fillDevice() {  // подставляем код компьютера, уже известный для клиента
+  const c = db.clients.find(c => c.name === $("f_client").value.trim());
+  const last = c && db.licenses.filter(l => l.client === c.id).pop();
+  if (last && !$("f_device").value.trim()) $("f_device").value = showDevice(last.device);
+}
+async function issue() {
+  const name = $("f_client").value.trim(), device = normDevice($("f_device").value), code = $("f_program").value;
+  if (!name) return fail("Укажите клиента: выберите из списка или впишите новое имя.");
+  if (!device) return fail("Код компьютера — 10 знаков, например ABCDE-FGH23.");
+  const old = db.licenses.find(l => l.id === form.renewId);
+  let expires = "";
+  if (form.term === -1) {
+    expires = $("f_until").value;
+    if (!expires || expires < today()) return fail("Выберите дату окончания — сегодня или позже.");
+  } else if (form.term > 0) {
+    // при продлении срок прибавляется к оставшемуся, если доступ ещё не истёк
+    const start = old && old.expires > today() ? old.expires : today();
+    expires = addDays(start, form.term);
+  }
+  let c = db.clients.find(c => c.name === name);
+  if (!c) { c = { id: db.seq++, name, contact: "", note: "" }; db.clients.push(c); }
+  // тот же клиент, программа и компьютер — обновляем запись, а не плодим дубли
+  let lic = old || db.licenses.find(l => l.client === c.id && l.program === code && l.device === device);
+  if (!lic) { lic = { id: db.seq++, client: c.id, program: code, device }; db.licenses.push(lic); }
+  Object.assign(lic, { issued: today(), expires, note: $("f_note").value.trim() });
+  saveDb();
+  showKey(lic.id, true);
+}
+async function showKey(id, fresh) {
+  const l = db.licenses.find(l => l.id === id);
+  const key = await makeKey(secret, l.program, l.device, l.expires);
+  form.key = key;
+  openSheet(`<h2>Ключ для «${esc(client(l.client).name)}»</h2>
+    <p class="hint">${esc(program(l.program).name)}, действует: ${showDate(l.expires)}. Ключ подойдёт только к компьютеру ${showDevice(l.device)}.</p>
+    <div class="keybox">${key}</div>
+    <button class="main wide" onclick="copy(form.key, 'Ключ скопирован')">Скопировать ключ</button>
+    ${inTelegram ? '<button class="wide" onclick="shareKey()">Отправить в чат Telegram</button>' : ""}
+    <button class="wide" onclick="closeSheet()">Готово</button>`);
+  if (fresh) copy(key, "Ключ выдан и скопирован");
+}
+function shareKey() { tg.openTelegramLink("https://t.me/share/url?url=" + encodeURIComponent(form.key)); }
+function licenseCard(id) {
+  const l = db.licenses.find(l => l.id === id), st = statusOf(l.expires);
+  openSheet(`<h2>${esc(client(l.client).name)}</h2>
+    <div class="card" style="cursor:default"><div class="top"><span class="name">${esc(program(l.program).name)}</span>
+      <span class="badge ${st[1]}">${st[0]}</span></div>
+      <div class="sub">Выдан: ${showDate(l.issued)} · действует до: ${showDate(l.expires)}</div>
+      <div class="sub">Компьютер: ${showDevice(l.device)}</div>${l.note ? `<div class="sub">${esc(l.note)}</div>` : ""}</div>
+    <button class="main wide" onclick="licenseForm(${id})">Продлить</button>
+    <button class="wide" onclick="showKey(${id})">Показать ключ</button>
+    <button class="wide danger" onclick="removeLicense(${id})">Удалить запись</button>
+    <button class="wide" onclick="closeSheet()">Назад</button>`);
+}
+async function removeLicense(id) {
+  if (!await ask("Удалить запись? Уже выданный ключ продолжит работать до конца своего срока.")) return;
+  db.licenses = db.licenses.filter(l => l.id !== id);
+  saveDb();
+  closeSheet();
+}
+
+// ---------------------------------------------------------------- клиенты и программы
+
+function clientForm(id) {
+  const c = db.clients.find(c => c.id === id) || {};
+  form = { id: c.id || 0 };
+  openSheet(`<h2>${c.id ? "Клиент" : "Новый клиент"}</h2>
+    <label>Имя</label><input id="f_name" value="${esc(c.name)}">
+    <label>Контакт (телефон, Telegram…)</label><input id="f_contact" value="${esc(c.contact)}">
+    <label>Заметка</label><input id="f_note" value="${esc(c.note)}">
+    <div class="error" id="error"></div>
+    <div class="row"><button onclick="closeSheet()">Отмена</button><button class="main" onclick="saveClient()">Сохранить</button></div>
+    ${c.id ? `<button class="wide danger" onclick="removeClient(${c.id})">Удалить клиента</button>` : ""}`);
+}
+function saveClient() {
+  const name = $("f_name").value.trim();
+  if (!name) return fail("Укажите имя клиента.");
+  if (db.clients.some(c => c.name === name && c.id !== form.id)) return fail("Клиент с таким именем уже есть.");
+  let c = db.clients.find(c => c.id === form.id);
+  if (!c) { c = { id: db.seq++ }; db.clients.push(c); }
+  Object.assign(c, { name, contact: $("f_contact").value.trim(), note: $("f_note").value.trim() });
+  saveDb();
+  closeSheet();
+}
+async function removeClient(id) {
+  if (!await ask("Удалить клиента и все записи о его доступах? Уже выданные ключи продолжат работать до конца срока.")) return;
+  db.clients = db.clients.filter(c => c.id !== id);
+  db.licenses = db.licenses.filter(l => l.client !== id);
+  saveDb();
+  closeSheet();
+}
+function programForm(code) {
+  const p = db.programs.find(p => p.code === code) || {};
+  form = { code: p.code || "" };
+  openSheet(`<h2>${p.code ? "Программа" : "Новая программа"}</h2>
+    <label>Название</label><input id="f_name" value="${esc(p.name)}">
+    <label>Код (латиница, без пробелов) — тот же, что зашит в программу</label>
+    <input id="f_code" value="${esc(p.code)}" ${p.code ? "disabled" : ""} placeholder="например: subtitles" autocapitalize="none">
+    <div class="error" id="error"></div>
+    <div class="row"><button onclick="closeSheet()">Отмена</button><button class="main" onclick="saveProgram()">Сохранить</button></div>
+    ${p.code ? `<button class="wide danger" onclick="removeProgram('${p.code}')">Удалить программу</button>` : ""}`);
+}
+function saveProgram() {
+  const name = $("f_name").value.trim(), code = form.code || $("f_code").value.trim();
+  if (!name) return fail("Укажите название программы.");
+  if (!/^[a-z0-9_]{2,30}$/.test(code)) return fail("Код — от 2 до 30 знаков: маленькие латинские буквы, цифры и «_».");
+  if (!form.code && db.programs.some(p => p.code === code)) return fail("Программа с таким кодом уже есть.");
+  let p = db.programs.find(p => p.code === code);
+  if (!p) { p = { code }; db.programs.push(p); }
+  p.name = name;
+  saveDb();
+  closeSheet();
+}
+async function removeProgram(code) {
+  if (!await ask("Удалить программу и все записи о доступах к ней?")) return;
+  db.programs = db.programs.filter(p => p.code !== code);
+  db.licenses = db.licenses.filter(l => l.program !== code);
+  saveDb();
+  closeSheet();
+}
+
+// ---------------------------------------------------------------- запуск
+
+(async () => {
+  if (tg) { tg.ready(); tg.expand(); }
+  try {
+    const all = await loadAll();
+    db = all.db;
+    secret = all.secret ? unhex(all.secret) : null;
+    render();
+  } catch (e) {
+    $("app").innerHTML = '<div class="empty">Не удалось загрузить данные: ' + esc(e.message) + "<br>Закройте приложение и откройте снова.</div>";
+  }
+})();
+</script>
+</body>
+</html>
